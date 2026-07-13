@@ -2,8 +2,8 @@ import 'dotenv/config'
 import Koa from 'koa'
 import { koaBody } from 'koa-body'
 import { router } from './router'
-import { log } from './logingMiddleware'
-import { auth } from './authMiddleware'
+import { log } from './middlewares/logingMiddleware'
+import { auth } from './middlewares/authMiddleware'
 
 const app = new Koa()
 

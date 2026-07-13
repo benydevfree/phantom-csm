@@ -24,6 +24,18 @@ async function migrate() {
   console.log('✅ Table subscriptions créée')
 
   await db.query(`
+    CREATE TABLE IF NOT EXISTS refresh_tokens (
+      id        SERIAL PRIMARY KEY,
+      token     TEXT NOT NULL,
+      user_id   TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      revoked   BOOLEAN DEFAULT false,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  console.log('✅ Table refresh_tokens créée')
+
+  await db.query(`
     ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_id TEXT;
   `)
   console.log('✅ Colonne user_id ajoutée à la table sessions') 

@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken"
 export const auth = () => {
   return async (ctx: Context, next: Next) => {
 
-    if (ctx.path === '/login') return await next()
+    if (ctx.path === '/login' || ctx.path === '/auth/refresh') return await next()
 
   const authHeader = ctx.headers['authorization']
     if (!authHeader) {

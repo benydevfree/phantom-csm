@@ -6,6 +6,21 @@ import { publish } from './rabbitmq'
 
 export const router = new Router()
 
+router.get('/sessions', async (ctx) => {
+  const { name } = ctx.query
+  try {
+   const result = name
+      ? await db.query('SELECT * FROM sessions WHERE name ILIKE $1', [`%${name}%`])
+      : await db.query('SELECT * FROM sessions')
+  
+       ctx.body = result.rows
+  } catch (err) {
+    console.error('DB error:', err)
+    ctx.status = 500
+    ctx.body = { error: String(err) }
+  }
+})
+
 router.get('/sessions/:id/stream', async (ctx) => {
   ctx.set('Content-Type', 'text/event-stream')
   ctx.set('Cache-Control', 'no-cache')

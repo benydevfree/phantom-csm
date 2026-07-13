@@ -53,11 +53,37 @@ router.get('/health', (ctx) => {
 
 router.post('/session', async (ctx) => {
   try {
-    const { name } = ctx.request.body as { name: string }
-    const result = await db.query(
-      'INSERT INTO sessions (name) VALUES ($1) RETURNING *',
-      [name]
+    const { name, user_id } = ctx.request.body as { name: string; user_id: string }
+    
+    const subResult = await db.query(
+      'SELECT max_sessions, sessions_used FROM subscriptions WHERE user_id = $1 and status = \'active\'',
+      [user_id]
     )
+    
+    if (subResult.rows.length === 0) {
+      ctx.status = 404
+      ctx.body = { error: 'Subscription not found' }
+      return
+    }
+    
+    const { max_sessions, sessions_used } = subResult.rows[0]
+    
+    if (sessions_used >= max_sessions) {
+      ctx.status = 429
+      ctx.body = { error: 'Session limit reached' }
+      return
+    }
+    
+    const result = await db.query(
+      'INSERT INTO sessions (name, user_id) VALUES ($1, $2) RETURNING *',
+      [name, user_id]
+    )
+    
+    await db.query(
+      'UPDATE subscriptions SET sessions_used = sessions_used + 1 WHERE user_id = $1',
+      [user_id]
+    )
+    
     await publish('session.created', result.rows[0])
     ctx.status = 201
     ctx.body = result.rows[0]
@@ -76,5 +102,33 @@ router.post('/login', async (ctx) => {
   } else {
     ctx.status = 401
     ctx.body = { error: 'Invalid credentials' }
+  }
+})
+
+
+
+router.post('/subscription', async (ctx) => {
+  try {
+    const { user_id, plan } = ctx.request.body as { user_id: string; plan: 'free' | 'pro' | 'enterprise'; }
+
+
+    await db.query(
+      'UPDATE subscriptions SET status = \'cancelled\' WHERE user_id = $1 AND status = \'active\'',
+      [user_id]
+    )
+
+    const result = await db.query(
+      'INSERT INTO subscriptions (user_id, plan, max_sessions, status) VALUES ($1, $2, $3, $4) RETURNING *',
+      [user_id, plan, plan === 'free' ? 1 : plan === 'pro' ? 10 : 100, 'active']
+    )
+
+    await publish('subscription.created', result.rows[0])
+
+    ctx.status = 201
+    ctx.body = result.rows[0]
+  } catch (err) {
+    console.error('DB error:', err)
+    ctx.status = 500
+    ctx.body = { error: String(err) }
   }
 })

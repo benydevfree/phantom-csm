@@ -8,6 +8,7 @@ async function startWorker() {
   const connection = await amqp.connect(RABBITMQ_URL)
   const channel = await connection.createChannel()
   await channel.assertQueue('session.created', { durable: true })
+  await channel.assertQueue('subscription.created', { durable: true })
 
   console.log('👷 Worker en écoute sur session.created...')
 
@@ -37,6 +38,22 @@ async function startWorker() {
       console.error('Worker error:', err)
     }
   })
+
+  console.log('👷 Worker en écoute sur subscription.created...')
+
+  channel.consume('subscription.created', async (msg) => {
+    if (!msg) return
+    try {
+      const subscription = JSON.parse(msg.content.toString())
+      console.log('📨 Subscription reçue:', subscription)
+      channel.ack(msg)
+    } catch (err) {
+      console.error('Worker error:', err)
+    }
+  })
+
+
+  
 }
 
 startWorker()

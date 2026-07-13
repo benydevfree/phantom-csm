@@ -1,5 +1,6 @@
 import Router from '@koa/router'
 import Redis from 'ioredis'
+import jwt from 'jsonwebtoken'
 import { db } from './db'
 import { publish } from './rabbitmq'
 
@@ -49,5 +50,16 @@ router.post('/session', async (ctx) => {
     console.error('DB error:', err)
     ctx.status = 500
     ctx.body = { error: String(err) }
+  }
+})
+
+router.post('/login', async (ctx) => {
+  const { username, password } = ctx.request.body as { username: string; password: string }
+  if (username === 'admin@phantom.com' && password === 'phantom') {
+    const token = jwt.sign({ username }, process.env.JWT_SECRET!, { expiresIn: '1h' })
+    ctx.body = { token }
+  } else {
+    ctx.status = 401
+    ctx.body = { error: 'Invalid credentials' }
   }
 })

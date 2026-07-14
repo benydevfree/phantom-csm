@@ -2,6 +2,7 @@ services:
   - type: web
     name: phantom-csm-api
     runtime: node
+    plan: free
     buildCommand: npm ci && npm run build
     startCommand: node dist/index.js
     envVars:
@@ -16,17 +17,22 @@ services:
       - key: JWT_SECRET
         sync: false
 
-  - type: worker
-    name: phantom-csm-worker
-    runtime: node
-    buildCommand: npm ci && npm run build && npx playwright install chromium --with-deps
-    startCommand: node dist/worker.js
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: DATABASE_URL
-        sync: false
-      - key: RABBITMQ_URL
-        sync: false
-      - key: REDIS_URL
-        sync: false
+# Worker (Background Worker — paid tier required on Render)
+# Deploy separately or run locally for dev:
+#   node dist/worker.js
+# In production, re-enable with plan: starter
+#
+#  - type: worker
+#    name: phantom-csm-worker
+#    runtime: node
+#    buildCommand: npm ci && npm run build && npx playwright install chromium --with-deps
+#    startCommand: node dist/worker.js
+#    envVars:
+#      - key: NODE_ENV
+#        value: production
+#      - key: DATABASE_URL
+#        sync: false
+#      - key: RABBITMQ_URL
+#        sync: false
+#      - key: REDIS_URL
+#        sync: false

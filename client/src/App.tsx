@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import Markdown from 'react-markdown'
 
 type Message = {
   role: 'user' | 'assistant'
@@ -89,9 +90,11 @@ export default function App() {
               maxWidth: '80%', padding: '10px 14px', borderRadius: 12,
               background: m.role === 'user' ? '#2563eb' : '#f3f4f6',
               color: m.role === 'user' ? '#fff' : '#111',
-              fontSize: 14, lineHeight: 1.5, whiteSpace: 'pre-wrap',
+              fontSize: 14, lineHeight: 1.5,
             }}>
-              {m.content}
+              {m.role === 'assistant'
+                ? <div className="prose"><Markdown>{m.content}</Markdown></div>
+                : m.content}
             </div>
           </div>
         ))}

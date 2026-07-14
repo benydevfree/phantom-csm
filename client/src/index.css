@@ -109,3 +109,17 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 }
+
+/* Markdown chat styles */
+.prose p { margin: 0 0 8px; }
+.prose p:last-child { margin-bottom: 0; }
+.prose table { border-collapse: collapse; width: 100%; font-size: 13px; margin: 8px 0; }
+.prose th, .prose td { border: 1px solid #d1d5db; padding: 6px 10px; text-align: left; }
+.prose th { background: #f9fafb; font-weight: 600; }
+.prose code { background: #f3f4f6; padding: 1px 5px; border-radius: 4px; font-size: 12px; font-family: monospace; }
+.prose pre { background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 12px; margin: 8px 0; }
+.prose pre code { background: none; padding: 0; }
+.prose ul, .prose ol { padding-left: 20px; margin: 4px 0; }
+.prose li { margin: 2px 0; }
+.prose strong { font-weight: 600; }
+.prose a { color: #2563eb; text-decoration: underline; }

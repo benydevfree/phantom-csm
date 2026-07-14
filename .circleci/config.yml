@@ -1,29 +1,199 @@
 version: 2.1
 
+orbs:
+  node: circleci/node@5
+
+# ── Reusable commands ─────────────────────────────────────────────────────────
+commands:
+  install-pulumi:
+    steps:
+      - run:
+          name: Install Pulumi CLI
+          command: |
+            curl -fsSL https://get.pulumi.com | sh
+            echo 'export PATH=$HOME/.pulumi/bin:$PATH' >> "$BASH_ENV"
+      - run:
+          name: Install infra dependencies
+          command: cd infra && npm ci
+
+# ── Jobs ──────────────────────────────────────────────────────────────────────
 jobs:
+
+  typecheck:
+    docker:
+      - image: cimg/node:22.0
+    steps:
+      - checkout
+      - node/install-packages:
+          pkg-manager: npm
+      - run:
+          name: TypeScript — type-check
+          command: npx tsc --noEmit
+
   build:
     docker:
       - image: cimg/node:22.0
     steps:
       - checkout
-      - restore_cache:
-          keys:
-            - npm-{{ checksum "package-lock.json" }}
+      - node/install-packages:
+          pkg-manager: npm
       - run:
-          name: Install dependencies
-          command: npm ci
-      - save_cache:
-          key: npm-{{ checksum "package-lock.json" }}
-          paths:
-            - node_modules
-      - run:
-          name: Type check
-          command: npx tsc --noEmit
-      - run:
-          name: Build
+          name: Compile TypeScript
           command: npm run build
+      - persist_to_workspace:
+          root: .
+          paths:
+            - dist
 
+  docker-build-push:
+    machine:
+      image: ubuntu-2204:current
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: Docker login
+          command: echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+      - run:
+          name: Build image
+          command: |
+            docker build \
+              --tag "$DOCKER_USERNAME/phantom-csm:$CIRCLE_SHA1" \
+              --tag "$DOCKER_USERNAME/phantom-csm:latest" \
+              --cache-from "$DOCKER_USERNAME/phantom-csm:latest" \
+              .
+      - run:
+          name: Push image
+          command: |
+            docker push "$DOCKER_USERNAME/phantom-csm:$CIRCLE_SHA1"
+            docker push "$DOCKER_USERNAME/phantom-csm:latest"
+
+  integration-test:
+    machine:
+      image: ubuntu-2204:current
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: Start stack
+          command: docker compose up -d postgres redis rabbitmq
+      - run:
+          name: Wait for services
+          command: |
+            docker compose run --rm api sh -c "
+              until nc -z postgres 5432; do sleep 1; done
+              until nc -z redis 6379; do sleep 1; done
+              until nc -z rabbitmq 5672; do sleep 1; done
+            " || true
+          no_output_timeout: 60s
+      - run:
+          name: Run migration
+          command: |
+            DATABASE_URL=postgresql://phantom:phantom@localhost:5432/phantom_csm \
+              node dist/migrate.js
+      - run:
+          name: Health check
+          command: |
+            NODE_ENV=test \
+            DATABASE_URL=postgresql://phantom:phantom@localhost:5432/phantom_csm \
+            RABBITMQ_URL=amqp://phantom:phantom@localhost:5672 \
+            REDIS_URL=redis://localhost:6379 \
+            JWT_SECRET=test-secret \
+              node dist/index.js &
+            sleep 3
+            curl -sf http://localhost:3000/health
+      - run:
+          name: Tear down
+          command: docker compose down -v
+          when: always
+
+  deploy-staging:
+    docker:
+      - image: cimg/node:22.0
+    steps:
+      - checkout
+      - install-pulumi
+      - run:
+          name: Pulumi up — staging
+          command: |
+            cd infra
+            pulumi stack select staging
+            pulumi config set imageTag "$CIRCLE_SHA1"
+            pulumi up --yes --skip-preview
+          environment:
+            PULUMI_ACCESS_TOKEN: $PULUMI_ACCESS_TOKEN
+
+  deploy-prod:
+    docker:
+      - image: cimg/node:22.0
+    steps:
+      - checkout
+      - install-pulumi
+      - run:
+          name: Pulumi up — production
+          command: |
+            cd infra
+            pulumi stack select prod
+            pulumi config set imageTag "$CIRCLE_SHA1"
+            pulumi up --yes --skip-preview
+          environment:
+            PULUMI_ACCESS_TOKEN: $PULUMI_ACCESS_TOKEN
+
+# ── Workflows ─────────────────────────────────────────────────────────────────
 workflows:
-  main:
+
+  # Every push: type-check + build
+  ci:
     jobs:
-      - build
+      - typecheck
+      - build:
+          requires: [typecheck]
+
+  # main branch: full pipeline → staging auto-deploy
+  staging:
+    jobs:
+      - typecheck:
+          filters:
+            branches:
+              only: main
+      - build:
+          requires: [typecheck]
+          filters:
+            branches:
+              only: main
+      - docker-build-push:
+          requires: [build]
+          filters:
+            branches:
+              only: main
+      - integration-test:
+          requires: [build]
+          filters:
+            branches:
+              only: main
+      - deploy-staging:
+          requires: [docker-build-push, integration-test]
+          filters:
+            branches:
+              only: main
+
+  # main branch: manual gate before prod
+  production:
+    jobs:
+      - docker-build-push:
+          filters:
+            branches:
+              only: main
+      - hold-prod:
+          type: approval
+          requires: [docker-build-push]
+          filters:
+            branches:
+              only: main
+      - deploy-prod:
+          requires: [hold-prod]
+          filters:
+            branches:
+              only: main

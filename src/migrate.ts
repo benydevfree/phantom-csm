@@ -46,6 +46,19 @@ async function migrate() {
   `)
   console.log('✅ Colonne status ajoutée à la table subscriptions')
 
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS prospects (
+      id           SERIAL PRIMARY KEY,
+      job_id       UUID NOT NULL UNIQUE,
+      user_id      TEXT NOT NULL,
+      source_url   TEXT NOT NULL,
+      status       TEXT CHECK (status IN ('pending', 'scraping', 'done', 'failed')) DEFAULT 'pending',
+      enriched_data JSONB,
+      created_at   TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  console.log('✅ Table prospects créée')
+
   await db.end()
 }
 

@@ -1,0 +1,47 @@
+---
+# Run once on a fresh EC2 Ubuntu server.
+# Usage: ansible-playbook playbooks/setup-server.yml -e phantom_ip=<EC2_PUBLIC_IP>
+#
+# After this playbook, the server has:
+#   - Docker CE + Compose plugin
+#   - UFW firewall (only ports 22, 3000, 15672 open)
+#   - ubuntu user in docker group
+
+- name: Bootstrap PhantomBuster server
+  hosts: phantom
+  become: yes
+
+  roles:
+    - docker
+
+  tasks:
+    - name: UFW — allow SSH
+      ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+
+    - name: UFW — allow API
+      ufw:
+        rule: allow
+        port: "3000"
+        proto: tcp
+
+    - name: UFW — allow RabbitMQ management dashboard
+      ufw:
+        rule: allow
+        port: "15672"
+        proto: tcp
+
+    - name: UFW — enable (deny all else)
+      ufw:
+        state: enabled
+        policy: deny
+
+    - name: Create /opt/phantom-csm directory
+      file:
+        path: /opt/phantom-csm
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: "0755"

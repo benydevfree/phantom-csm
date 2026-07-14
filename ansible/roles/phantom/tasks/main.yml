@@ -1,0 +1,36 @@
+---
+- name: Create app directory
+  file:
+    path: "{{ phantom_dir }}"
+    state: directory
+    owner: "{{ docker_user }}"
+    group: "{{ docker_user }}"
+    mode: "0755"
+
+- name: Deploy docker-compose.yml
+  template:
+    src: docker-compose.prod.yml.j2
+    dest: "{{ phantom_dir }}/docker-compose.yml"
+    owner: "{{ docker_user }}"
+    mode: "0644"
+
+- name: Log in to Docker Hub
+  community.docker.docker_login:
+    username: "{{ lookup('env', 'DOCKER_USERNAME') }}"
+    password: "{{ lookup('env', 'DOCKER_PASSWORD') }}"
+  when: lookup('env', 'DOCKER_USERNAME') != ''
+
+- name: Pull latest images
+  community.docker.docker_compose_v2:
+    project_src: "{{ phantom_dir }}"
+    pull: always
+    state: present
+
+- name: Wait for API health
+  uri:
+    url: http://localhost:3000/health
+    status_code: 200
+  register: health
+  until: health.status == 200
+  retries: 12
+  delay: 5

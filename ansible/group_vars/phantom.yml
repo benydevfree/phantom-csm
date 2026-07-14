@@ -1,0 +1,10 @@
+# Overridable vars — secrets must come from Ansible Vault or CI env vars
+docker_user:  ubuntu
+phantom_dir:  /opt/phantom-csm
+docker_image: benydevfree/phantom-csm
+image_tag:    latest
+
+# Secrets (set via -e or ansible-vault)
+db_password:       "{{ lookup('env', 'DB_PASSWORD') }}"
+rabbitmq_password: "{{ lookup('env', 'RABBITMQ_PASSWORD') }}"
+jwt_secret:        "{{ lookup('env', 'JWT_SECRET') }}"

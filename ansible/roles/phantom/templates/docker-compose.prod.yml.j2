@@ -1,0 +1,74 @@
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: phantom
+      POSTGRES_PASSWORD: "{{ db_password }}"
+      POSTGRES_DB: phantom_csm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U phantom -d phantom_csm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: phantom
+      RABBITMQ_DEFAULT_PASS: "{{ rabbitmq_password }}"
+    ports:
+      - "15672:15672"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      retries: 10
+
+  api:
+    image: "{{ docker_image }}:{{ image_tag }}"
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: "postgresql://phantom:{{ db_password }}@postgres:5432/phantom_csm"
+      RABBITMQ_URL: "amqp://phantom:{{ rabbitmq_password }}@rabbitmq:5672"
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: "{{ jwt_secret }}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    image: "{{ docker_image }}:{{ image_tag }}"
+    command: node dist/worker.js
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: "postgresql://phantom:{{ db_password }}@postgres:5432/phantom_csm"
+      RABBITMQ_URL: "amqp://phantom:{{ rabbitmq_password }}@rabbitmq:5672"
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

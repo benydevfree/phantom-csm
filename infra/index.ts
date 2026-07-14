@@ -1,137 +1,102 @@
 import * as pulumi from "@pulumi/pulumi";
-import * as docker from "@pulumi/docker";
+import * as aws from "@pulumi/aws";
 
-// ── Config ─────────────────────────────────────────────────────────────────
-const stack = pulumi.getStack(); // dev | staging | prod
-const cfg = new pulumi.Config();
+// ── Config ────────────────────────────────────────────────────────────────────
+const stack  = pulumi.getStack(); // dev | staging | prod
+const cfg    = new pulumi.Config();
+const region = cfg.get("region") ?? "eu-west-3"; // Paris by default
+const keyPair = cfg.require("keyPair");           // EC2 SSH key name (pre-created)
 
-const imageTag = cfg.get("imageTag") ?? "latest";
-const jwtSecret = cfg.requireSecret("jwtSecret");
-
-// ── Network (all containers talk on this bridge) ───────────────────────────
-const network = new docker.Network("phantom-network", {
-    name: `phantom-${stack}`,
+// ── VPC ───────────────────────────────────────────────────────────────────────
+const vpc = new aws.ec2.Vpc("phantom-vpc", {
+    cidrBlock:          "10.0.0.0/16",
+    enableDnsHostnames: true,
+    enableDnsSupport:   true,
+    tags: { Name: `phantom-vpc-${stack}`, Environment: stack, ManagedBy: "pulumi" },
 });
 
-// ── Volumes (data persistence across restarts) ─────────────────────────────
-const pgVolume = new docker.Volume("postgres-data", {
-    name: `phantom-postgres-data-${stack}`,
+const igw = new aws.ec2.InternetGateway("phantom-igw", {
+    vpcId: vpc.id,
+    tags: { Name: `phantom-igw-${stack}` },
 });
 
-// ── Postgres ───────────────────────────────────────────────────────────────
-const postgres = new docker.Container("postgres", {
-    name: `phantom-postgres-${stack}`,
-    image: "postgres:16-alpine",
-    networksAdvanced: [{ name: network.name, aliases: ["postgres"] }],
-    envs: [
-        "POSTGRES_USER=phantom",
-        "POSTGRES_PASSWORD=phantom",
-        `POSTGRES_DB=phantom_${stack}`,
+const subnet = new aws.ec2.Subnet("phantom-subnet-public", {
+    vpcId:               vpc.id,
+    cidrBlock:           "10.0.1.0/24",
+    availabilityZone:    `${region}a`,
+    mapPublicIpOnLaunch: true,
+    tags: { Name: `phantom-subnet-public-${stack}` },
+});
+
+const routeTable = new aws.ec2.RouteTable("phantom-rt", {
+    vpcId: vpc.id,
+    routes: [{ cidrBlock: "0.0.0.0/0", gatewayId: igw.id }],
+    tags: { Name: `phantom-rt-${stack}` },
+});
+
+new aws.ec2.RouteTableAssociation("phantom-rta", {
+    subnetId:     subnet.id,
+    routeTableId: routeTable.id,
+});
+
+// ── Security Group ────────────────────────────────────────────────────────────
+const sg = new aws.ec2.SecurityGroup("phantom-sg", {
+    vpcId:       vpc.id,
+    description: `phantom-csm ${stack}`,
+    ingress: [
+        { protocol: "tcp", fromPort: 22,    toPort: 22,    cidrBlocks: ["0.0.0.0/0"],      description: "SSH" },
+        { protocol: "tcp", fromPort: 3000,  toPort: 3000,  cidrBlocks: ["0.0.0.0/0"],      description: "API" },
+        { protocol: "tcp", fromPort: 15672, toPort: 15672, cidrBlocks: ["0.0.0.0/0"],      description: "RabbitMQ dashboard" },
+        { protocol: "tcp", fromPort: 5432,  toPort: 5432,  cidrBlocks: ["10.0.0.0/16"],    description: "Postgres (VPC only)" },
+        { protocol: "tcp", fromPort: 6379,  toPort: 6379,  cidrBlocks: ["10.0.0.0/16"],    description: "Redis (VPC only)" },
+        { protocol: "tcp", fromPort: 5672,  toPort: 5672,  cidrBlocks: ["10.0.0.0/16"],    description: "RabbitMQ AMQP (VPC only)" },
     ],
-    volumes: [{ volumeName: pgVolume.name, containerPath: "/var/lib/postgresql/data" }],
-    ports: [{ internal: 5432, external: 5432 }],
-    healthcheck: {
-        tests: ["CMD-SHELL", "pg_isready -U phantom"],
-        interval: "5s",
-        timeout: "5s",
-        retries: 10,
-    },
-    restart: "unless-stopped",
+    egress: [{ protocol: "-1", fromPort: 0, toPort: 0, cidrBlocks: ["0.0.0.0/0"] }],
+    tags: { Name: `phantom-sg-${stack}` },
 });
 
-// ── Redis ─────────────────────────────────────────────────────────────────
-const redis = new docker.Container("redis", {
-    name: `phantom-redis-${stack}`,
-    image: "redis:7-alpine",
-    networksAdvanced: [{ name: network.name, aliases: ["redis"] }],
-    ports: [{ internal: 6379, external: 6379 }],
-    healthcheck: {
-        tests: ["CMD", "redis-cli", "ping"],
-        interval: "5s",
-        timeout: "3s",
-        retries: 5,
-    },
-    restart: "unless-stopped",
-});
-
-// ── RabbitMQ ──────────────────────────────────────────────────────────────
-const rabbitmq = new docker.Container("rabbitmq", {
-    name: `phantom-rabbitmq-${stack}`,
-    image: "rabbitmq:3-management-alpine",
-    networksAdvanced: [{ name: network.name, aliases: ["rabbitmq"] }],
-    envs: [
-        "RABBITMQ_DEFAULT_USER=phantom",
-        "RABBITMQ_DEFAULT_PASS=phantom",
+// ── EC2 Instance ──────────────────────────────────────────────────────────────
+// Latest Ubuntu 22.04 LTS AMI (Canonical)
+const ubuntu = aws.ec2.getAmiOutput({
+    mostRecent: true,
+    owners: ["099720109477"],
+    filters: [
+        { name: "name",              values: ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"] },
+        { name: "virtualization-type", values: ["hvm"] },
+        { name: "architecture",      values: ["x86_64"] },
     ],
-    ports: [
-        { internal: 5672, external: 5672 },
-        { internal: 15672, external: 15672 },
-    ],
-    healthcheck: {
-        tests: ["CMD", "rabbitmq-diagnostics", "-q", "ping"],
-        interval: "10s",
-        timeout: "5s",
-        retries: 10,
-    },
-    restart: "unless-stopped",
 });
 
-// ── Common env vars shared by API and Worker ───────────────────────────────
-const sharedEnvs = pulumi.all([
-    postgres.name,
-    redis.name,
-    rabbitmq.name,
-    jwtSecret,
-]).apply(([pg, rd, mq, secret]) => [
-    `DATABASE_URL=postgresql://phantom:phantom@postgres:5432/phantom_${stack}`,
-    `RABBITMQ_URL=amqp://phantom:phantom@rabbitmq:5672`,
-    `REDIS_URL=redis://redis:6379`,
-    `JWT_SECRET=${secret}`,
-    "NODE_ENV=production",
-]);
+const instanceType = stack === "prod" ? aws.ec2.InstanceType.T3_Medium
+                                      : aws.ec2.InstanceType.T3_Small;
 
-// ── API ──────────────────────────────────────────────────────────────────
-const api = new docker.Container("api", {
-    name: `phantom-api-${stack}`,
-    image: `benydevfree/phantom-csm:${imageTag}`,
-    networksAdvanced: [{ name: network.name, aliases: ["api"] }],
-    envs: sharedEnvs,
-    ports: [{ internal: 3000, external: 3000 }],
-    healthcheck: {
-        tests: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"],
-        interval: "15s",
-        timeout: "5s",
-        startPeriod: "10s",
-        retries: 3,
+const server = new aws.ec2.Instance("phantom-server", {
+    ami:                 ubuntu.id,
+    instanceType,
+    subnetId:            subnet.id,
+    vpcSecurityGroupIds: [sg.id],
+    keyName:             keyPair,
+    rootBlockDevice: {
+        volumeSize:            20,
+        volumeType:            "gp3",
+        deleteOnTermination:   true,
     },
-    restart: "unless-stopped",
-}, { dependsOn: [postgres, redis, rabbitmq] });
+    tags: { Name: `phantom-${stack}`, Environment: stack, ManagedBy: "pulumi" },
+});
 
-// ── Worker ────────────────────────────────────────────────────────────────
-const worker = new docker.Container("worker", {
-    name: `phantom-worker-${stack}`,
-    image: `benydevfree/phantom-csm:${imageTag}`,
-    networksAdvanced: [{ name: network.name, aliases: ["worker"] }],
-    envs: sharedEnvs,
-    commands: ["node", "dist/worker.js"],
-    restart: "unless-stopped",
-}, { dependsOn: [postgres, rabbitmq] });
+// Elastic IP — stable public address (survives stop/start)
+const eip = new aws.ec2.Eip("phantom-eip", {
+    domain:   "vpc",
+    instance: server.id,
+    tags: { Name: `phantom-eip-${stack}` },
+});
 
-// ── Outputs (consumed by CI/CD or other Pulumi stacks) ────────────────────
-export const networkName        = network.name;
-export const apiContainerName   = api.name;
-export const workerContainerName = worker.name;
-export const apiUrl             = pulumi.interpolate`http://localhost:3000`;
-export const rabbitmqDashboard  = pulumi.interpolate`http://localhost:15672`;
+// ── Outputs — consumed by Ansible and CircleCI ────────────────────────────────
+export const publicIp    = eip.publicIp;
+export const instanceId  = server.id;
+export const vpcId       = vpc.id;
+export const sgId        = sg.id;
 
-/*
- * Production upgrade path:
- * Switch `@pulumi/docker` → `@pulumi/aws` to provision:
- *   - aws.ecr.Repository          (image registry)
- *   - aws.ecs.Cluster + TaskDef   (containers on Fargate)
- *   - aws.rds.Instance            (managed Postgres)
- *   - aws.elasticache.Cluster     (managed Redis)
- *   - aws.mq.Broker               (managed RabbitMQ)
- *   - aws.alb.LoadBalancer        (HTTPS ingress)
- * Same Pulumi API, same stack/config abstraction — provider swap only.
- */
+// Convenience: Ansible inventory one-liner
+export const ansibleHost = pulumi.interpolate
+    `ansible-playbook ansible/playbooks/deploy.yml -e phantom_ip=${eip.publicIp}`;

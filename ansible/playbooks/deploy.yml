@@ -1,0 +1,19 @@
+---
+# Deploy (or redeploy) the phantom-csm stack on the server.
+# Usage:
+#   ansible-playbook playbooks/deploy.yml \
+#     -e phantom_ip=<EC2_PUBLIC_IP> \
+#     -e image_tag=$CIRCLE_SHA1
+#
+# Required env vars (loaded from group_vars via env lookup):
+#   DB_PASSWORD, RABBITMQ_PASSWORD, JWT_SECRET
+#   DOCKER_USERNAME, DOCKER_PASSWORD (for private registry pull)
+
+- name: Deploy phantom-csm
+  hosts: phantom
+  become: yes
+  vars:
+    image_tag: "{{ lookup('env', 'IMAGE_TAG') | default('latest') }}"
+
+  roles:
+    - phantom

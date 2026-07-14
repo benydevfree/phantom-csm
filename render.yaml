@@ -3,7 +3,7 @@ services:
     name: phantom-csm-api
     runtime: node
     plan: free
-    buildCommand: npm ci && npm run build
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: node dist/index.js
     envVars:
       - key: NODE_ENV

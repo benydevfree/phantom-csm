@@ -22,7 +22,7 @@ async function loadContext(): Promise<string> {
   )
   if (res.rows.length === 0) return 'Aucun prospect en base pour le moment.'
 
-  return res.rows.map((r) => {
+  return res.rows.map((r: any) => {
     const d = r.enriched_data
     if (!d) return `- [${r.status}] ${r.source_url} (job: ${r.job_id})`
     return `- [${r.status}] ${d.title ?? '?'} | ${d.company ?? '?'} | ${d.location ?? '?'} | ${d.contractType ?? '?'} | Salaire: ${d.salary ?? 'N/A'}\n  URL: ${r.source_url}`

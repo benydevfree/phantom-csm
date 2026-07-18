@@ -15,8 +15,20 @@ export type LinkedInProfile = {
   experience: LinkedInExperience[]
   education: { school: string; years: string | null }[]
   recentPosts: { title: string; date: string | null }[]
+  // Authenticated-only fields (null when scraped without session cookies)
+  email: string | null
+  phone: string | null
+  skills: string[]
+  connections: string | null
   profileUrl: string
+  authMode: 'guest' | 'authenticated'
   scrapedAt: string
+}
+
+export type ScrapeOptions = {
+  proxy?: string
+  // LinkedIn session cookie (li_at) — unlocks contact info, skills, full connections count
+  sessionCookie?: string
 }
 
 export class LinkedInRateLimitError extends Error {
@@ -212,8 +224,55 @@ async function extractGuestProfile(page: any, url: string): Promise<LinkedInProf
   }
 }
 
+// ── Authenticated extraction (with li_at session cookie) ────────────────────
+// Unlocks: contact info (email/phone), skills, full connections count,
+// "People also viewed", mutual connections, and full About text.
+async function extractAuthenticatedProfile(page: any, url: string): Promise<Omit<LinkedInProfile, 'authMode'>> {
+  const guest = await extractGuestProfile(page, url)
+
+  // Email — in "Contact info" modal (requires auth)
+  const email = await page.evaluate((): string | null => {
+    const links = Array.from(document.querySelectorAll('a[href^="mailto:"]'))
+    return links[0]?.getAttribute('href')?.replace('mailto:', '') ?? null
+  }) as string | null
+
+  // Phone
+  const phone = await page.evaluate((): string | null => {
+    const links = Array.from(document.querySelectorAll('a[href^="tel:"]'))
+    return links[0]?.getAttribute('href')?.replace('tel:', '') ?? null
+  }) as string | null
+
+  // Skills — authenticated view shows skills section
+  const skills = await page.evaluate((): string[] => {
+    const section = document.querySelector('section[data-section="skills"]')
+    if (!section) return []
+    return Array.from(section.querySelectorAll('.skill-category-entity__name, h3'))
+      .map(el => el.textContent?.trim())
+      .filter(Boolean)
+      .slice(0, 10) as string[]
+  }) as string[]
+
+  // Connections count — authenticated shows exact number up to 500+
+  const connections = await page.evaluate((): string | null => {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+    let node: Text | null
+    while ((node = walker.nextNode() as Text | null)) {
+      const txt = node.textContent?.trim() ?? ''
+      if (/\d+\s*(connexions?|connections?)/i.test(txt) && txt.length < 30) return txt
+    }
+    return null
+  }) as string | null
+
+  return { ...guest, email, phone, skills, connections }
+}
+
 // ── Main scraper ────────────────────────────────────────────────────────────
-export async function scrapeLinkedInProfile(url: string, proxy?: string): Promise<LinkedInProfile> {
+export async function scrapeLinkedInProfile(url: string, optionsOrProxy?: string | ScrapeOptions): Promise<LinkedInProfile> {
+  // Support both legacy (string proxy) and new options object signature
+  const options: ScrapeOptions = typeof optionsOrProxy === 'string'
+    ? { proxy: optionsOrProxy }
+    : (optionsOrProxy ?? {})
+
   await limiter.wait()
 
   const browser = await chromium.launch({
@@ -222,7 +281,7 @@ export async function scrapeLinkedInProfile(url: string, proxy?: string): Promis
   })
 
   const context = await browser.newContext({
-    ...(proxy && { proxy: { server: proxy } }),
+    ...(options.proxy && { proxy: { server: options.proxy } }),
     userAgent: pickUserAgent(),
     viewport: {
       width: 1280 + Math.floor(Math.random() * 120),
@@ -233,6 +292,18 @@ export async function scrapeLinkedInProfile(url: string, proxy?: string): Promis
     extraHTTPHeaders: { 'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7' },
   })
 
+  // Inject LinkedIn session cookie if provided
+  if (options.sessionCookie) {
+    await context.addCookies([{
+      name: 'li_at',
+      value: options.sessionCookie,
+      domain: '.linkedin.com',
+      path: '/',
+      httpOnly: true,
+      secure: true,
+    }])
+  }
+
   const page = await context.newPage()
   await page.addInitScript(STEALTH_SCRIPT)
 
@@ -240,11 +311,15 @@ export async function scrapeLinkedInProfile(url: string, proxy?: string): Promis
     const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15_000 })
     const finalUrl = page.url()
 
+    // With a valid session cookie, LinkedIn should NOT redirect to /login
     if (
       finalUrl.includes('/login') ||
       finalUrl.includes('/authwall') ||
       finalUrl.includes('/checkpoint')
     ) {
+      if (options.sessionCookie) {
+        throw new LinkedInAuthError() // Cookie expired or invalid
+      }
       throw new LinkedInAuthError()
     }
 
@@ -255,7 +330,21 @@ export async function scrapeLinkedInProfile(url: string, proxy?: string): Promis
     await page.waitForSelector('h1', { timeout: 8_000 })
     await page.waitForTimeout(400 + Math.random() * 600)
 
-    return await extractGuestProfile(page, url)
+    const authMode: 'guest' | 'authenticated' = options.sessionCookie ? 'authenticated' : 'guest'
+
+    const profile = options.sessionCookie
+      ? await extractAuthenticatedProfile(page, url)
+      : await extractGuestProfile(page, url)
+
+    return {
+      ...profile,
+      // Guest mode: no contact/skills data
+      email: profile.email ?? null,
+      phone: profile.phone ?? null,
+      skills: profile.skills ?? [],
+      connections: profile.connections ?? null,
+      authMode,
+    }
   } finally {
     await context.close()
     await browser.close()

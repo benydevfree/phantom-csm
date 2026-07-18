@@ -18,6 +18,7 @@ const mockPage = vi.hoisted(() => ({
 const mockContext = vi.hoisted(() => ({
   newPage: vi.fn().mockResolvedValue(mockPage),
   close: vi.fn().mockResolvedValue(undefined),
+  addCookies: vi.fn().mockResolvedValue(undefined),
 }))
 
 const mockBrowser = vi.hoisted(() => ({
@@ -184,5 +185,63 @@ describe('scrapeLinkedInProfile', () => {
 
     expect(mockContext.close).toHaveBeenCalledTimes(1)
     expect(mockBrowser.close).toHaveBeenCalledTimes(1)
+  })
+
+  // ── ScrapeOptions / authenticated mode ────────────────────────────────────
+
+  it('sets authMode to guest when no sessionCookie provided', async () => {
+    const profile = await scrapeLinkedInProfile('https://www.linkedin.com/in/alice')
+    expect(profile.authMode).toBe('guest')
+  })
+
+  it('sets authMode to authenticated and injects li_at cookie when sessionCookie provided', async () => {
+    // Auth path calls 4 extra evaluate() calls (email, phone, skills, connections)
+    mockPage.evaluate
+      .mockResolvedValueOnce(null)         // email
+      .mockResolvedValueOnce(null)         // phone
+      .mockResolvedValueOnce([])           // skills
+      .mockResolvedValueOnce(null)         // connections
+
+    const profile = await scrapeLinkedInProfile(
+      'https://www.linkedin.com/in/alice',
+      { sessionCookie: 'AQEDATi…fakecookie' }
+    )
+
+    expect(profile.authMode).toBe('authenticated')
+    expect(mockContext.addCookies).toHaveBeenCalledWith([
+      expect.objectContaining({
+        name: 'li_at',
+        value: 'AQEDATi…fakecookie',
+        domain: '.linkedin.com',
+      }),
+    ])
+  })
+
+  it('accepts ScrapeOptions with proxy string', async () => {
+    await scrapeLinkedInProfile('https://www.linkedin.com/in/alice', {
+      proxy: 'http://proxy.example.com:8080',
+    })
+
+    expect(mockBrowser.newContext).toHaveBeenCalledWith(
+      expect.objectContaining({ proxy: { server: 'http://proxy.example.com:8080' } })
+    )
+  })
+
+  it('returns null email/phone/skills[] when in guest mode', async () => {
+    const profile = await scrapeLinkedInProfile('https://www.linkedin.com/in/alice')
+    expect(profile.email).toBeNull()
+    expect(profile.phone).toBeNull()
+    expect(profile.skills).toEqual([])
+    expect(profile.connections).toBeNull()
+  })
+
+  it('throws LinkedInAuthError when cookie is invalid (redirected to /login)', async () => {
+    mockPage.url.mockReturnValue('https://www.linkedin.com/login?session_redirect=...')
+
+    await expect(
+      scrapeLinkedInProfile('https://www.linkedin.com/in/alice', {
+        sessionCookie: 'expired_cookie',
+      })
+    ).rejects.toBeInstanceOf(LinkedInAuthError)
   })
 })

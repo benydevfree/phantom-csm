@@ -1,5 +1,5 @@
 name: phantom-csm-infra
-description: A minimal TypeScript Pulumi program
+description: Hetzner Cloud infrastructure for phantom-csm (managed by Pulumi)
 runtime:
   name: nodejs
   options:

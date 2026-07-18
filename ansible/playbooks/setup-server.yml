@@ -42,6 +42,6 @@
       file:
         path: /opt/phantom-csm
         state: directory
-        owner: ubuntu
-        group: ubuntu
+        owner: root
+        group: root
         mode: "0755"

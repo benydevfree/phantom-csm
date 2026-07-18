@@ -4,7 +4,7 @@
     path: "{{ phantom_dir }}"
     state: directory
     owner: "{{ docker_user }}"
-    group: "{{ docker_user }}"
+    group: "{{ docker_user | default('root') }}"
     mode: "0755"
 
 - name: Deploy docker-compose.yml

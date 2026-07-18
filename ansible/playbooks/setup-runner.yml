@@ -1,0 +1,79 @@
+---
+# Install and configure GitLab Runner on beny-dev VPS.
+# Shared runner across all GitLab projects (SSP, BP, clients...).
+#
+# Usage:
+#   ansible-playbook playbooks/setup-runner.yml -e phantom_ip=167.233.223.247
+#
+# To register the runner after install:
+#   ansible-playbook playbooks/setup-runner.yml \
+#     -e phantom_ip=167.233.223.247 \
+#     -e gitlab_runner_token=<token-from-gitlab>
+#
+# Get the token: GitLab group/project → Settings → CI/CD → Runners → New runner
+
+- name: Setup GitLab Runner on beny-dev VPS
+  hosts: phantom
+  become: yes
+
+  tasks:
+    - name: Add GitLab Runner apt repository
+      shell: |
+        curl -fsSL "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh" | bash
+      args:
+        creates: /etc/apt/sources.list.d/runner_gitlab-runner.list
+
+    - name: Install gitlab-runner
+      apt:
+        name: gitlab-runner
+        state: present
+        update_cache: yes
+
+    - name: Add gitlab-runner user to docker group
+      user:
+        name: gitlab-runner
+        groups: docker
+        append: yes
+
+    - name: Set concurrent jobs to 2 (= nb vCPU on CPX12)
+      lineinfile:
+        path: /etc/gitlab-runner/config.toml
+        regexp: '^concurrent\s*='
+        line: 'concurrent = 2'
+      notify: restart gitlab-runner
+
+    - name: Register runner with GitLab
+      command: >
+        gitlab-runner register
+        --non-interactive
+        --url "https://gitlab.com/"
+        --token "{{ gitlab_runner_token }}"
+        --executor "docker"
+        --docker-image "node:20"
+        --description "beny-dev-runner"
+        --docker-volumes "/var/run/docker.sock:/var/run/docker.sock"
+        --docker-pull-policy "if-not-present"
+      when: gitlab_runner_token is defined and gitlab_runner_token != ""
+      register: runner_register
+      changed_when: runner_register.rc == 0
+
+    - name: Start and enable gitlab-runner service
+      service:
+        name: gitlab-runner
+        state: started
+        enabled: yes
+
+    - name: Show runner status
+      command: gitlab-runner status
+      register: runner_status
+      changed_when: false
+
+    - name: Print runner status
+      debug:
+        msg: "{{ runner_status.stdout }}"
+
+  handlers:
+    - name: restart gitlab-runner
+      service:
+        name: gitlab-runner
+        state: restarted

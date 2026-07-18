@@ -78,5 +78,30 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ── Observability ──────────────────────────────────────────────────────────
+
+  promtail:
+    image: grafana/promtail:latest
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./promtail-config.yml:/etc/promtail/config.yml:ro
+    command: -config.file=/etc/promtail/config.yml
+    restart: unless-stopped
+
+  langfuse:
+    image: langfuse/langfuse:latest
+    ports:
+      - "3001:3000"
+    environment:
+      DATABASE_URL: postgresql://phantom:phantom@postgres:5432/phantom_csm
+      NEXTAUTH_URL: http://localhost:3001
+      NEXTAUTH_SECRET: ${LANGFUSE_SECRET:-change-me-in-prod}
+      SALT: ${LANGFUSE_SALT:-change-me-in-prod}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres_data:

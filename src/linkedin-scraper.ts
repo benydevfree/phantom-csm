@@ -102,10 +102,12 @@ const STEALTH_SCRIPT = `
   })
 `
 
+type GuestProfile = Omit<LinkedInProfile, 'authMode' | 'email' | 'phone' | 'skills' | 'connections'>
+
 // ── Guest-view extraction — selectors derived from live DOM inspection ───────
 // LinkedIn guest view uses data-section attributes and specific class names
 // that differ from the authenticated view. Validated against real profiles.
-async function extractGuestProfile(page: any, url: string): Promise<LinkedInProfile> {
+async function extractGuestProfile(page: any, url: string): Promise<GuestProfile> {
   const title = await page.title()
 
   // Name — h1 is always present and reliable
@@ -228,7 +230,7 @@ async function extractGuestProfile(page: any, url: string): Promise<LinkedInProf
 // Unlocks: contact info (email/phone), skills, full connections count,
 // "People also viewed", mutual connections, and full About text.
 async function extractAuthenticatedProfile(page: any, url: string): Promise<Omit<LinkedInProfile, 'authMode'>> {
-  const guest = await extractGuestProfile(page, url)
+  const guest: GuestProfile = await extractGuestProfile(page, url)
 
   // Email — in "Contact info" modal (requires auth)
   const email = await page.evaluate((): string | null => {
@@ -336,13 +338,14 @@ export async function scrapeLinkedInProfile(url: string, optionsOrProxy?: string
       ? await extractAuthenticatedProfile(page, url)
       : await extractGuestProfile(page, url)
 
+    const authProfile = profile as Partial<Pick<LinkedInProfile, 'email' | 'phone' | 'skills' | 'connections'>>
     return {
       ...profile,
-      // Guest mode: no contact/skills data
-      email: profile.email ?? null,
-      phone: profile.phone ?? null,
-      skills: profile.skills ?? [],
-      connections: profile.connections ?? null,
+      // Guest mode: no contact/skills data — authenticated mode populates these
+      email: authProfile.email ?? null,
+      phone: authProfile.phone ?? null,
+      skills: authProfile.skills ?? [],
+      connections: authProfile.connections ?? null,
       authMode,
     }
   } finally {

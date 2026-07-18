@@ -129,8 +129,7 @@ jobs:
             pulumi preview
           environment:
             PULUMI_ACCESS_TOKEN: $PULUMI_ACCESS_TOKEN
-            AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
-            AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
+            HCLOUD_TOKEN: $HCLOUD_TOKEN
 
   pulumi-up-staging:
     docker:
@@ -146,8 +145,7 @@ jobs:
             pulumi up --yes --skip-preview
           environment:
             PULUMI_ACCESS_TOKEN: $PULUMI_ACCESS_TOKEN
-            AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
-            AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
+            HCLOUD_TOKEN: $HCLOUD_TOKEN
       - run:
           name: Export server IP
           command: |
@@ -205,8 +203,7 @@ jobs:
             pulumi up --yes --skip-preview
           environment:
             PULUMI_ACCESS_TOKEN: $PULUMI_ACCESS_TOKEN
-            AWS_ACCESS_KEY_ID:   $AWS_ACCESS_KEY_ID
-            AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
+            HCLOUD_TOKEN: $HCLOUD_TOKEN
       - run:
           name: Export server IP
           command: |

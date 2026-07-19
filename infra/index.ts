@@ -18,6 +18,8 @@ const firewall = new hcloud.Firewall("phantom-fw", {
         { direction: "in", protocol: "tcp", port: "15672", sourceIps: ["0.0.0.0/0", "::/0"], description: "RabbitMQ dashboard" },
         { direction: "in", protocol: "tcp", port: "9090",  sourceIps: ["0.0.0.0/0", "::/0"], description: "Prometheus" },
         { direction: "in", protocol: "tcp", port: "3002",  sourceIps: ["0.0.0.0/0", "::/0"], description: "Grafana" },
+        { direction: "in", protocol: "tcp", port: "80",    sourceIps: ["0.0.0.0/0", "::/0"], description: "HTTP (Caddy)" },
+        { direction: "in", protocol: "tcp", port: "443",   sourceIps: ["0.0.0.0/0", "::/0"], description: "HTTPS (Caddy/CSM daemon)" },
     ],
     labels: { environment: stack, managedBy: "pulumi" },
 });

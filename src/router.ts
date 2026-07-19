@@ -6,6 +6,7 @@ import prospectsRouter from './routes/prospects'
 import linkedinRouter from './routes/linkedin'
 import chatRouter from './routes/chat'
 import contactsRouter from './routes/contacts'
+import offersRouter from './routes/offers'
 import { registry } from './metrics'
 
 const router = new Router()
@@ -26,5 +27,6 @@ router.use(prospectsRouter.routes(), prospectsRouter.allowedMethods())
 router.use(linkedinRouter.routes(), linkedinRouter.allowedMethods())
 router.use(chatRouter.routes(), chatRouter.allowedMethods())
 router.use(contactsRouter.routes(), contactsRouter.allowedMethods())
+router.use(offersRouter.routes(), offersRouter.allowedMethods())
 
 export { router }

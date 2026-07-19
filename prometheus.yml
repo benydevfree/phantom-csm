@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    service: phantom-csm
+
+scrape_configs:
+  - job_name: phantom-api
+    static_configs:
+      - targets: ['api:3000']
+    metrics_path: /metrics
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']

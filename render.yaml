@@ -16,6 +16,8 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
+      - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
+        value: "1"
 
 # Worker (Background Worker — paid tier required on Render)
 # Deploy separately or run locally for dev:

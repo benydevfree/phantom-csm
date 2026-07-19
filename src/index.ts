@@ -4,6 +4,7 @@ import { koaBody } from 'koa-body'
 import { router } from './router'
 import { log } from './middlewares/logingMiddleware'
 import { auth } from './middlewares/authMiddleware'
+import { tenant } from './middlewares/tenantMiddleware'
 import { logger } from './logger'
 
 const app = new Koa()
@@ -11,6 +12,7 @@ const app = new Koa()
 app.use(log())
 app.use(koaBody())
 app.use(auth())
+app.use(tenant())
 app.use(router.routes())
 app.use(router.allowedMethods())
 

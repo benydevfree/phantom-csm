@@ -1,0 +1,235 @@
+{
+  "branchName": "feat/01-warm-outreach-mvp",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Migration : ajouter tenant_id sur prospects + créer table contacts",
+      "acceptanceCriteria": [
+        "ALTER TABLE prospects ADD COLUMN IF NOT EXISTS tenant_id TEXT",
+        "Table contacts créée avec UUID pk, tenant_id, full_name, headline, location, email, phone, linkedin_url, company, sector, source enum, raw_data JSONB",
+        "Migration idempotente (IF NOT EXISTS)",
+        "TypeScript compile"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Ajouter dans src/migrate.ts. Source enum : 'linkedin_csv' | 'linkedin_scrape' | 'gmail' | 'manual' | 'csv'. Index sur (tenant_id, linkedin_url) pour dédup."
+    },
+    {
+      "id": "US-002",
+      "title": "Migration : créer tables offers et contact_scores",
+      "acceptanceCriteria": [
+        "Table offers créée avec UUID pk, tenant_id, name, description, target_persona, bp_initiative_id nullable, discriminant_criteria JSONB nullable, status TEXT DEFAULT 'pending'",
+        "Table contact_scores créée avec UUID pk, tenant_id, contact_id FK→contacts, offer_id FK→offers, score INTEGER 0-100, matched_criteria JSONB, computed_at",
+        "Migration idempotente",
+        "TypeScript compile"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "Ajouter dans src/migrate.ts après la migration contacts. Status offer : 'pending' | 'analyzing' | 'done' | 'error'."
+    },
+    {
+      "id": "US-003",
+      "title": "Middleware tenantMiddleware : injecter tenantId depuis JWT",
+      "acceptanceCriteria": [
+        "Fichier src/middlewares/tenantMiddleware.ts créé",
+        "Extrait ctx.state.user.sub et le met dans ctx.state.tenantId",
+        "Skip pour paths publics : /health, /metrics, /login, /auth/refresh",
+        "Retourne 401 si tenantId manquant sur routes protégées",
+        "Enregistré dans src/index.ts après auth middleware",
+        "TypeScript compile",
+        "Tests passent"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": "Le JWT payload a un champ 'sub' qui correspond à l'userId. Regarder authMiddleware.ts pour le pattern."
+    },
+    {
+      "id": "US-004",
+      "title": "Parser CSV LinkedIn : fonction parseLinkedInCsv",
+      "acceptanceCriteria": [
+        "Fichier src/csv-parser.ts créé avec fonction exportée parseLinkedInCsv(content: string): ParsedContact[]",
+        "Gère les colonnes LinkedIn : First Name, Last Name, URL, Email Address, Company, Position, Connected On",
+        "Ignore les lignes vides et les headers",
+        "Trim les valeurs",
+        "TypeScript compile"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "Le CSV LinkedIn a 2 lignes d'en-tête (notes + header). Utiliser la lib 'csv-parse/sync' si disponible, sinon parser manuellement avec split('\\n') et split(',')."
+    },
+    {
+      "id": "US-005",
+      "title": "Tests unitaires pour parseLinkedInCsv",
+      "acceptanceCriteria": [
+        "Fichier src/__tests__/csv-parser.test.ts créé",
+        "Test : CSV nominal avec 3 contacts → retourne 3 ParsedContact",
+        "Test : email vide → champ email null",
+        "Test : lignes vides ignorées",
+        "Test : noms avec accents",
+        "npm test passe"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": "Utiliser vi.mock si besoin. Fixture CSV en string inline dans le test."
+    },
+    {
+      "id": "US-006",
+      "title": "Route POST /contacts/import-csv",
+      "acceptanceCriteria": [
+        "Fichier src/routes/contacts.ts créé",
+        "Route POST /contacts/import-csv accepte multipart/form-data avec champ 'file'",
+        "Appelle parseLinkedInCsv sur le contenu",
+        "Bulk INSERT dans contacts avec tenant_id = ctx.state.tenantId",
+        "ON CONFLICT (tenant_id, linkedin_url) DO NOTHING pour dédup",
+        "Retourne { imported: N, duplicates: M, total: T }",
+        "Route enregistrée dans src/router.ts",
+        "TypeScript compile",
+        "Tests passent"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": "koa-body supporte multipart. Lire le fichier depuis ctx.request.files.file. Calculer duplicates = total - imported."
+    },
+    {
+      "id": "US-007",
+      "title": "Route GET /contacts avec pagination et filtres",
+      "acceptanceCriteria": [
+        "Route GET /contacts dans src/routes/contacts.ts",
+        "Query params : page (défaut 1), limit (défaut 20, max 100), sector (optionnel), source (optionnel)",
+        "Filtre obligatoire par tenant_id",
+        "Retourne { contacts: Contact[], total: number, page: number, limit: number }",
+        "TypeScript compile",
+        "Tests passent"
+      ],
+      "priority": 7,
+      "passes": true,
+      "notes": "Utiliser OFFSET/LIMIT. COUNT(*) OVER() pour le total sans double query."
+    },
+    {
+      "id": "US-008",
+      "title": "Routes CRUD Offers : POST + GET list + GET detail + DELETE",
+      "acceptanceCriteria": [
+        "Fichier src/routes/offers.ts créé",
+        "POST /offers : Zod schema (name required string, description optional, target_persona optional), INSERT avec tenant_id, retourner offre créée",
+        "GET /offers : liste filtrée par tenant_id avec count de contacts scorés",
+        "GET /offers/:id : détail + discriminant_criteria, vérifier tenant ownership",
+        "DELETE /offers/:id : supprimer offer + contact_scores associés, vérifier tenant ownership",
+        "Routes enregistrées dans src/router.ts",
+        "TypeScript compile",
+        "Tests passent"
+      ],
+      "priority": 8,
+      "passes": true,
+      "notes": "Pattern identique aux routes existantes (sessions.ts, prospects.ts). Zod pour la validation POST."
+    },
+    {
+      "id": "US-009",
+      "title": "Client LLM Anthropic : src/llm.ts avec analyzeOfferCriteria",
+      "acceptanceCriteria": [
+        "Installer @anthropic-ai/sdk via npm",
+        "Fichier src/llm.ts créé avec client Anthropic initialisé depuis ANTHROPIC_API_KEY",
+        "Type Criterion exporté : { field: string, positive_values: string[], negative_values: string[], weight: number, rationale: string }",
+        "Fonction analyzeOfferCriteria(offer: {name, description, target_persona}) : Promise<Criterion[]>",
+        "Appelle claude-haiku-4-5-20251001 avec prompt structuré demandant 5 critères en JSON",
+        "Parse la réponse JSON (extraire le JSON du texte si besoin)",
+        "TypeScript compile"
+      ],
+      "priority": 9,
+      "passes": true,
+      "notes": "Prompt : 'Voici une offre commerciale. Identifie 5 critères discriminants pour trouver les contacts les plus susceptibles. Réponds UNIQUEMENT en JSON valide : { criteria: [...] }'. Modèle : claude-haiku-4-5-20251001."
+    },
+    {
+      "id": "US-010",
+      "title": "Worker handler handleOfferAnalyzeRequested + route POST /offers/:id/analyze",
+      "acceptanceCriteria": [
+        "Handler handleOfferAnalyzeRequested exporté dans src/worker.ts",
+        "Fetch l'offre par offerId depuis le job payload, vérifie qu'elle existe",
+        "UPDATE offers SET status='analyzing'",
+        "Appelle analyzeOfferCriteria",
+        "UPDATE offers SET discriminant_criteria=result, status='done'",
+        "En cas d'erreur : UPDATE offers SET status='error'",
+        "Route POST /offers/:id/analyze : vérifier tenant ownership, UPDATE status='pending', publish 'offer.analyze.requested' avec {jobId, offerId, tenantId}, retourner 202",
+        "TypeScript compile",
+        "Tests passent"
+      ],
+      "priority": 10,
+      "passes": true,
+      "notes": "Même pattern que handleLinkedInScrapeRequested dans worker.ts. La queue s'appelle 'q.offer.analyze.requested'."
+    },
+    {
+      "id": "US-011",
+      "title": "Fonction scoreContact : algorithme de scoring 0-100",
+      "acceptanceCriteria": [
+        "Fichier src/scoring.ts créé avec fonction exportée scoreContact(contact: Contact, criteria: Criterion[]): { score: number, matched: MatchedCriterion[] }",
+        "Pour chaque critère : cherche les positive_values dans headline+company+sector du contact (toLowerCase, includes)",
+        "Score pondéré : somme(matches * weight) / somme(max_weight) * 100, arrondi entier",
+        "matched_criteria : liste des critères qui ont matché avec leur contribution",
+        "TypeScript compile"
+      ],
+      "priority": 11,
+      "passes": true,
+      "notes": "Simple string matching sur les champs texte. Pas de NLP. Concaténer headline + company + sector en un string de recherche."
+    },
+    {
+      "id": "US-012",
+      "title": "Tests unitaires pour scoreContact",
+      "acceptanceCriteria": [
+        "Fichier src/__tests__/scoring.test.ts créé",
+        "Test : contact qui matche tous les critères → score proche de 100",
+        "Test : contact qui ne matche rien → score 0",
+        "Test : contact avec headline vide → ne plante pas, score partiel",
+        "Test : criteria vide → score 0",
+        "npm test passe"
+      ],
+      "priority": 12,
+      "passes": true,
+      "notes": "Fixtures inline dans le test. Pas de mock Anthropic."
+    },
+    {
+      "id": "US-013",
+      "title": "Worker handler handleContactsScoreRequested + route POST /offers/:id/score-contacts",
+      "acceptanceCriteria": [
+        "Handler handleContactsScoreRequested exporté dans src/worker.ts",
+        "Vérifie que l'offre a status='done' et discriminant_criteria non null",
+        "Fetch tous les contacts du tenant",
+        "Appelle scoreContact pour chaque contact",
+        "Bulk INSERT dans contact_scores avec ON CONFLICT (tenant_id, contact_id, offer_id) DO UPDATE SET score, matched_criteria, computed_at",
+        "Route POST /offers/:id/score-contacts : vérifier offer status='done', publish 'contacts.score.requested', retourner 202",
+        "TypeScript compile",
+        "Tests passent"
+      ],
+      "priority": 13,
+      "passes": true,
+      "notes": "Même pattern worker. Queue : 'q.contacts.score.requested'. Batch de 100 contacts max par INSERT."
+    },
+    {
+      "id": "US-014",
+      "title": "Route GET /offers/:id/contacts triés par score",
+      "acceptanceCriteria": [
+        "Route GET /offers/:id/contacts dans src/routes/offers.ts",
+        "Query params : sort (défaut 'score'), page, limit",
+        "JOIN contacts + contact_scores pour cette offre",
+        "Filtre par tenant_id sur les deux tables",
+        "Retourne contacts avec leur score et matched_criteria, triés par score DESC",
+        "Contacts sans score apparaissent en dernier (score null)",
+        "TypeScript compile",
+        "Tests passent"
+      ],
+      "priority": 14,
+      "passes": true,
+      "notes": "LEFT JOIN contact_scores ON contact_id = contacts.id AND offer_id = $offerId. ORDER BY score DESC NULLS LAST."
+    },
+    {
+      "id": "US-015",
+      "title": "Enregistrer les 2 nouveaux handlers dans startWorker + mettre à jour les tests",
+      "acceptanceCriteria": [
+        "startWorker() dans worker.ts subscribe aux 6 queues (4 existantes + offer.analyze + contacts.score)",
+        "Test startWorker mis à jour : expect 6 queues au lieu de 4",
+        "npm test passe sur tous les fichiers de test"
+      ],
+      "priority": 15,
+      "passes": true,
+      "notes": "Modifier worker.test.ts : changer le toHaveBeenCalledTimes(4) en (6) et ajouter les 2 nouveaux expect.toHaveBeenCalledWith."
+    }
+  ]
+}

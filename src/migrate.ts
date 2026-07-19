@@ -59,6 +59,70 @@ async function migrate() {
   `)
   console.log('✅ Table prospects créée')
 
+  await db.query(`
+    ALTER TABLE prospects ADD COLUMN IF NOT EXISTS tenant_id TEXT;
+  `)
+  console.log('✅ Colonne tenant_id ajoutée à la table prospects')
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS contacts (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id    TEXT NOT NULL,
+      full_name    TEXT,
+      headline     TEXT,
+      location     TEXT,
+      email        TEXT,
+      phone        TEXT,
+      linkedin_url TEXT,
+      company      TEXT,
+      sector       TEXT,
+      source       TEXT CHECK (source IN ('linkedin_csv', 'linkedin_scrape', 'gmail', 'manual', 'csv')) NOT NULL,
+      raw_data     JSONB,
+      created_at   TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  console.log('✅ Table contacts créée')
+
+  await db.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS contacts_tenant_linkedin_idx ON contacts (tenant_id, linkedin_url)
+    WHERE linkedin_url IS NOT NULL;
+  `)
+  console.log('✅ Index (tenant_id, linkedin_url) créé sur contacts')
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS offers (
+      id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id             TEXT NOT NULL,
+      name                  TEXT NOT NULL,
+      description           TEXT,
+      target_persona        TEXT,
+      bp_initiative_id      TEXT,
+      discriminant_criteria JSONB,
+      status                TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'analyzing', 'done', 'error')),
+      created_at            TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  console.log('✅ Table offers créée')
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS contact_scores (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id        TEXT NOT NULL,
+      contact_id       UUID NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      offer_id         UUID NOT NULL REFERENCES offers(id) ON DELETE CASCADE,
+      score            INTEGER CHECK (score >= 0 AND score <= 100),
+      matched_criteria JSONB,
+      computed_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  console.log('✅ Table contact_scores créée')
+
+  await db.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS contact_scores_unique_idx
+    ON contact_scores (tenant_id, contact_id, offer_id)
+  `)
+  console.log('✅ Index UNIQUE (tenant_id, contact_id, offer_id) créé sur contact_scores')
+
   await db.end()
 }
 

@@ -5,6 +5,8 @@ import { scrapeJobOffer } from './scraper'
 import { scrapeLinkedInProfile, LinkedInRateLimitError, LinkedInAuthError } from './linkedin-scraper'
 import { db } from './db'
 import { logger } from './logger'
+import { analyzeOfferCriteria } from './llm'
+import { scoreContact } from './scoring'
 
 const log = logger.child({ component: 'worker' })
 
@@ -81,11 +83,79 @@ export async function handleLinkedInScrapeRequested(data: any) {
   }
 }
 
+export async function handleOfferAnalyzeRequested(data: any) {
+  const { offerId } = data
+  const jobLog = log.child({ offerId, queue: 'offer.analyze.requested' })
+  jobLog.info('Offer analysis started')
+
+  const offerResult = await db.query('SELECT * FROM offers WHERE id = $1', [offerId])
+  if (offerResult.rows.length === 0) {
+    jobLog.error('Offer not found')
+    return
+  }
+  const offer = offerResult.rows[0]
+
+  await db.query("UPDATE offers SET status = 'analyzing' WHERE id = $1", [offerId])
+
+  try {
+    const criteria = await analyzeOfferCriteria(offer)
+    await db.query(
+      "UPDATE offers SET discriminant_criteria = $1, status = 'done' WHERE id = $2",
+      [JSON.stringify(criteria), offerId]
+    )
+    jobLog.info({ criteriaCount: criteria.length }, 'Offer analysis complete')
+  } catch (err) {
+    jobLog.error({ err }, 'Offer analysis failed')
+    await db.query("UPDATE offers SET status = 'error' WHERE id = $1", [offerId])
+  }
+}
+
+export async function handleContactsScoreRequested(data: any) {
+  const { offerId, tenantId } = data
+  const jobLog = log.child({ offerId, tenantId, queue: 'contacts.score.requested' })
+  jobLog.info('Contacts scoring started')
+
+  const offerResult = await db.query(
+    "SELECT * FROM offers WHERE id = $1 AND status = 'done' AND discriminant_criteria IS NOT NULL",
+    [offerId]
+  )
+  if (offerResult.rows.length === 0) {
+    jobLog.error('Offer not ready for scoring')
+    return
+  }
+  const offer = offerResult.rows[0]
+  const criteria = offer.discriminant_criteria
+
+  const contactsResult = await db.query(
+    'SELECT * FROM contacts WHERE tenant_id = $1',
+    [tenantId]
+  )
+  const contacts = contactsResult.rows
+
+  for (let i = 0; i < contacts.length; i += 100) {
+    const batch = contacts.slice(i, i + 100)
+    for (const contact of batch) {
+      const { score, matched } = scoreContact(contact, criteria)
+      await db.query(
+        `INSERT INTO contact_scores (tenant_id, contact_id, offer_id, score, matched_criteria, computed_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())
+         ON CONFLICT (tenant_id, contact_id, offer_id)
+         DO UPDATE SET score = $4, matched_criteria = $5, computed_at = NOW()`,
+        [tenantId, contact.id, offerId, score, JSON.stringify(matched)]
+      )
+    }
+  }
+
+  jobLog.info({ total: contacts.length }, 'Contacts scoring complete')
+}
+
 export async function startWorker() {
   await subscribe('session.created', 'q.session.created', handleSessionCreated)
   await subscribe('subscription.created', 'q.subscription.created', handleSubscriptionCreated)
   await subscribe('scrape.requested', 'q.scrape.requested', handleScrapeRequested)
   await subscribe('linkedin.scrape.requested', 'q.linkedin.scrape.requested', handleLinkedInScrapeRequested)
+  await subscribe('offer.analyze.requested', 'q.offer.analyze.requested', handleOfferAnalyzeRequested)
+  await subscribe('contacts.score.requested', 'q.contacts.score.requested', handleContactsScoreRequested)
 
   log.info('Worker listening on all queues')
 }

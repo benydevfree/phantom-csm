@@ -25,7 +25,7 @@ router.post('/import-csv', async (ctx) => {
   let imported = 0
   for (const c of contacts) {
     const result = await db.query(
-      `INSERT INTO contacts (tenant_id, full_name, linkedin_url, email, company, position, source, raw_data)
+      `INSERT INTO contacts (tenant_id, full_name, linkedin_url, email, company, headline, source, raw_data)
        VALUES ($1, $2, $3, $4, $5, $6, 'linkedin_csv', $7)
        ON CONFLICT (tenant_id, linkedin_url) WHERE linkedin_url IS NOT NULL DO NOTHING`,
       [tenantId, c.full_name || null, c.linkedin_url, c.email, c.company, c.position, JSON.stringify(c)]

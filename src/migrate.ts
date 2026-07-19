@@ -117,6 +117,12 @@ async function migrate() {
   `)
   console.log('✅ Table contact_scores créée')
 
+  await db.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS contact_scores_unique_idx
+    ON contact_scores (tenant_id, contact_id, offer_id)
+  `)
+  console.log('✅ Index UNIQUE (tenant_id, contact_id, offer_id) créé sur contact_scores')
+
   await db.end()
 }
 

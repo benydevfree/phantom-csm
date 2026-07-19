@@ -89,6 +89,34 @@ async function migrate() {
   `)
   console.log('✅ Index (tenant_id, linkedin_url) créé sur contacts')
 
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS offers (
+      id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id             TEXT NOT NULL,
+      name                  TEXT NOT NULL,
+      description           TEXT,
+      target_persona        TEXT,
+      bp_initiative_id      TEXT,
+      discriminant_criteria JSONB,
+      status                TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'analyzing', 'done', 'error')),
+      created_at            TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  console.log('✅ Table offers créée')
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS contact_scores (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id        TEXT NOT NULL,
+      contact_id       UUID NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      offer_id         UUID NOT NULL REFERENCES offers(id) ON DELETE CASCADE,
+      score            INTEGER CHECK (score >= 0 AND score <= 100),
+      matched_criteria JSONB,
+      computed_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  console.log('✅ Table contact_scores créée')
+
   await db.end()
 }
 

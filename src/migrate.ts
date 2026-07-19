@@ -59,6 +59,36 @@ async function migrate() {
   `)
   console.log('✅ Table prospects créée')
 
+  await db.query(`
+    ALTER TABLE prospects ADD COLUMN IF NOT EXISTS tenant_id TEXT;
+  `)
+  console.log('✅ Colonne tenant_id ajoutée à la table prospects')
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS contacts (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id    TEXT NOT NULL,
+      full_name    TEXT,
+      headline     TEXT,
+      location     TEXT,
+      email        TEXT,
+      phone        TEXT,
+      linkedin_url TEXT,
+      company      TEXT,
+      sector       TEXT,
+      source       TEXT CHECK (source IN ('linkedin_csv', 'linkedin_scrape', 'gmail', 'manual', 'csv')) NOT NULL,
+      raw_data     JSONB,
+      created_at   TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  console.log('✅ Table contacts créée')
+
+  await db.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS contacts_tenant_linkedin_idx ON contacts (tenant_id, linkedin_url)
+    WHERE linkedin_url IS NOT NULL;
+  `)
+  console.log('✅ Index (tenant_id, linkedin_url) créé sur contacts')
+
   await db.end()
 }
 

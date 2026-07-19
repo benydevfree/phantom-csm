@@ -1,0 +1,72 @@
+# Ralph Progress Log
+Started: 2026-07-19
+Feature: 01-warm-outreach-mvp
+
+## Codebase Patterns
+- DB client : `import { db } from './db'` — `db.query(sql, params)`, `db.end()` at end of migrate script
+- migrate.ts uses sequential `await db.query(...)` calls, each followed by `console.log('✅ ...')`
+- UUID primary keys : `UUID PRIMARY KEY DEFAULT gen_random_uuid()`
+- Conditional index creation : `CREATE UNIQUE INDEX IF NOT EXISTS ... WHERE col IS NOT NULL`
+- No ORM — raw SQL only
+
+---
+
+## 2026-07-19 - US-008 to US-015: Offers routes, LLM client, scoring, worker handlers
+- US-008/014: src/routes/offers.ts — POST/GET/GET:id/DELETE offers + GET /offers/:id/contacts (LEFT JOIN, ORDER BY score DESC NULLS LAST)
+- US-009: src/llm.ts — Anthropic client, analyzeOfferCriteria with claude-haiku-4-5-20251001, JSON extraction from response
+- US-010/013: Worker handlers handleOfferAnalyzeRequested + handleContactsScoreRequested in worker.ts
+- US-011: src/scoring.ts — scoreContact pure function, weighted string matching on headline+company+sector
+- US-012: src/__tests__/scoring.test.ts — 5 tests
+- US-015: worker.test.ts updated to expect 6 queues, added mocks for ../llm and ../scoring
+- Files: src/routes/offers.ts, src/routes/contacts.ts, src/llm.ts, src/scoring.ts, src/worker.ts, src/__tests__/scoring.test.ts, src/__tests__/worker.test.ts
+- **Learnings:**
+  - Zod v4: use `.issues` not `.errors` on ZodError
+  - worker.test.ts: must mock all imports (../llm, ../scoring) to avoid Anthropic SDK init error in test env
+  - ON CONFLICT with unique index on 3 columns needs a corresponding UNIQUE constraint or index in the DB
+  - `@anthropic-ai/sdk` already installed (v0.111.0)
+---
+
+## 2026-07-19 - US-004 to US-007: CSV parser + tests + contacts routes
+- US-004: src/csv-parser.ts — manual CSV parsing (no lib), handles 2 LinkedIn header lines, quoted values, accents
+- US-005: src/__tests__/csv-parser.test.ts — 5 tests
+- US-006/007: src/routes/contacts.ts — POST /contacts/import-csv (multipart), GET /contacts (pagination + filters)
+- Registered contactsRouter in src/router.ts
+- Files: src/csv-parser.ts, src/__tests__/csv-parser.test.ts, src/routes/contacts.ts, src/router.ts
+- **Learnings:**
+  - koa-body multipart file available at `ctx.request.files.file.filepath` (koa-body v6+) or `.path` (older)
+  - Partial unique index ON CONFLICT syntax: `ON CONFLICT (col1, col2) WHERE col2 IS NOT NULL DO NOTHING`
+  - COUNT(*) OVER() pattern: remove total_count from row with destructuring `({ total_count, ...row }) => row`
+  - Dynamic WHERE params: build conditions[] + params[], track paramIdx
+---
+
+## 2026-07-19 - US-003: tenantMiddleware injecte tenantId depuis JWT sub
+- Created src/middlewares/tenantMiddleware.ts with `tenant()` factory following same pattern as `auth()` and `log()`
+- Skips PUBLIC_PATHS Set: /health, /metrics, /login, /auth/refresh
+- Reads `ctx.state.user?.sub` and assigns to `ctx.state.tenantId`; returns 401 if missing
+- Registered in src/index.ts after auth() middleware
+- Tests in src/__tests__/tenantMiddleware.test.ts — 7 tests, all pass
+- Files changed: src/middlewares/tenantMiddleware.ts, src/index.ts, src/__tests__/tenantMiddleware.test.ts
+- **Learnings:**
+  - Middleware pattern: `export const foo = () => async (ctx, next) => { ... }`
+  - Tests use plain object ctx mocks, no Koa import needed
+---
+
+## 2026-07-19 - US-002: Migration tables offers et contact_scores
+- Created table `offers` with UUID PK, tenant_id, name, description, target_persona, bp_initiative_id (nullable), discriminant_criteria JSONB, status with CHECK constraint
+- Created table `contact_scores` with UUID PK, tenant_id, contact_id FK→contacts, offer_id FK→offers, score INTEGER 0-100, matched_criteria JSONB, computed_at
+- Files changed: src/migrate.ts
+- **Learnings:**
+  - FKs use `REFERENCES table(id) ON DELETE CASCADE` pattern
+  - contact_scores doesn't need a unique index yet (upsert conflict target added later in US-013)
+---
+
+## 2026-07-19 - US-001: Migration tenant_id sur prospects + table contacts
+- Added `ALTER TABLE prospects ADD COLUMN IF NOT EXISTS tenant_id TEXT`
+- Created table `contacts` with UUID PK, tenant_id, full_name, headline, location, email, phone, linkedin_url, company, sector, source enum, raw_data JSONB
+- Created partial unique index on (tenant_id, linkedin_url) WHERE linkedin_url IS NOT NULL
+- Files changed: src/migrate.ts
+- **Learnings:**
+  - `npx tsc --noEmit` works for typecheck (no "typecheck" npm script)
+  - Partial unique index needed because linkedin_url can be NULL (multiple contacts without URL)
+---
+

@@ -10,7 +10,7 @@ import { logger } from './logger'
 const app = new Koa()
 
 app.use(log())
-app.use(koaBody())
+app.use(koaBody({ multipart: true }))
 app.use(auth())
 app.use(tenant())
 app.use(router.routes())

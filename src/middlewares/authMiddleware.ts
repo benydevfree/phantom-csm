@@ -13,17 +13,17 @@ export const auth = () => {
       return
     }
     
-try {
+    let payload: Record<string, unknown>
+    try {
       const token = authHeader.split(' ')[1]
-      const payload = jwt.verify(token, process.env.JWT_SECRET!) as { [key: string]: any }
-      ctx.state.user = payload
-
-    await next()
-} catch (error) {
-     ctx.status = 403
+      payload = jwt.verify(token, process.env.JWT_SECRET!) as Record<string, unknown>
+    } catch {
+      ctx.status = 403
       ctx.body = { error: 'Invalid token' }
       return
-}
+    }
+    ctx.state.user = payload
+    await next()
 
   
 

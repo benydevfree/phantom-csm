@@ -46,6 +46,7 @@ services:
 
   api:
     build: .
+    image: benydevfree/phantom-csm:latest
     ports:
       - "3000:3000"
     environment:
@@ -65,6 +66,7 @@ services:
 
   worker:
     build: .
+    image: benydevfree/phantom-csm:latest
     command: ["node", "dist/worker.js"]
     environment:
       NODE_ENV: production

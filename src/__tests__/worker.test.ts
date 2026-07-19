@@ -11,6 +11,8 @@ vi.mock('../rabbitmq', () => ({ subscribe: vi.fn() }))
 vi.mock('../redis', () => ({ redis: { publish: vi.fn() } }))
 vi.mock('../scraper', () => ({ scrapeJobOffer: vi.fn() }))
 vi.mock('../db', () => ({ db: { query: vi.fn() } }))
+vi.mock('../llm', () => ({ analyzeOfferCriteria: vi.fn() }))
+vi.mock('../scoring', () => ({ scoreContact: vi.fn() }))
 vi.mock('../logger', () => ({
   logger: {
     child: vi.fn(() => ({
@@ -20,7 +22,7 @@ vi.mock('../logger', () => ({
   },
 }))
 
-import { handleSessionCreated, handleScrapeRequested, handleSubscriptionCreated, startWorker } from '../worker'
+import { handleSessionCreated, handleScrapeRequested, handleSubscriptionCreated, handleOfferAnalyzeRequested, handleContactsScoreRequested, startWorker } from '../worker'
 import { redis } from '../redis'
 import { scrapeJobOffer } from '../scraper'
 import { db } from '../db'
@@ -158,16 +160,18 @@ describe('Worker — consumers', () => {
   // startWorker
   // ──────────────────────────────────────────
   describe('startWorker', () => {
-    it('subscribes to all 4 queues', async () => {
+    it('subscribes to all 6 queues', async () => {
       vi.mocked(subscribe).mockResolvedValue(undefined as any)
 
       await startWorker()
 
-      expect(subscribe).toHaveBeenCalledTimes(4)
+      expect(subscribe).toHaveBeenCalledTimes(6)
       expect(subscribe).toHaveBeenCalledWith('session.created', 'q.session.created', handleSessionCreated)
       expect(subscribe).toHaveBeenCalledWith('subscription.created', 'q.subscription.created', handleSubscriptionCreated)
       expect(subscribe).toHaveBeenCalledWith('scrape.requested', 'q.scrape.requested', handleScrapeRequested)
       expect(subscribe).toHaveBeenCalledWith('linkedin.scrape.requested', 'q.linkedin.scrape.requested', expect.any(Function))
+      expect(subscribe).toHaveBeenCalledWith('offer.analyze.requested', 'q.offer.analyze.requested', handleOfferAnalyzeRequested)
+      expect(subscribe).toHaveBeenCalledWith('contacts.score.requested', 'q.contacts.score.requested', handleContactsScoreRequested)
     })
   })
 })

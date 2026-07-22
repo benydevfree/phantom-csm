@@ -7,6 +7,7 @@ import linkedinRouter from './routes/linkedin'
 import chatRouter from './routes/chat'
 import contactsRouter from './routes/contacts'
 import offersRouter from './routes/offers'
+import wakeRouter from './routes/wake'
 import { registry } from './metrics'
 
 const router = new Router()
@@ -20,6 +21,7 @@ router.get('/metrics', async (ctx) => {
   ctx.body = await registry.metrics()
 })
 
+router.use(wakeRouter.routes(), wakeRouter.allowedMethods())
 router.use(authRouter.routes())
 router.use(sessionsRouter.routes(), sessionsRouter.allowedMethods())
 router.use(subscriptionsRouter.routes(), subscriptionsRouter.allowedMethods())

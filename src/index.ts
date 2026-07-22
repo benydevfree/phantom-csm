@@ -6,6 +6,7 @@ import { log } from './middlewares/logingMiddleware'
 import { auth } from './middlewares/authMiddleware'
 import { tenant } from './middlewares/tenantMiddleware'
 import { logger } from './logger'
+import { startCron } from './cron'
 
 const app = new Koa()
 
@@ -19,4 +20,5 @@ app.use(router.allowedMethods())
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
   logger.info({ port: PORT }, `phantom-csm running on port ${PORT}`)
+  startCron()
 })

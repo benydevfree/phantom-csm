@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken"
 export const auth = () => {
   return async (ctx: Context, next: Next) => {
 
-    if (ctx.path === '/login' || ctx.path === '/auth/refresh' || ctx.path === '/health' || ctx.path === '/api/chat' || ctx.path === '/metrics') return await next()
+    if (ctx.path === '/login' || ctx.path === '/auth/refresh' || ctx.path === '/health' || ctx.path === '/api/chat' || ctx.path === '/metrics' || ctx.path === '/wake') return await next()
 
   const authHeader = ctx.headers['authorization']
     if (!authHeader) {
